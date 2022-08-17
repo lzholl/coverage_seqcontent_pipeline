@@ -1,0 +1,87 @@
+configfile: 'config.yaml'
+
+rule all:
+     input:
+        expand("results/mapped/q{q}/coverage.pdf",
+        q = config["quality_filter"])
+
+rule index:
+    input:
+        "data/reference.fasta"
+    output:
+        "data/reference.fasta.bwt"
+    conda:
+        "envs/map.yaml"
+    shell:
+        "bwa index {input}"
+
+rule map_reads:
+    input:
+        "data/reference.fasta",
+        "data/miseq/SRR961514_1.fastq",
+        "data/miseq/SRR961514_2.fastq"
+    output:
+        "results/mapped/q{q}/hiv.bam"
+    conda:
+        "envs/map.yaml"
+    params:
+        q = config["quality_filter"]
+    shell:
+        "bwa mem {input} | samtools view -S -b -q {wildcards.q} - > {output}"
+
+rule fix:
+    input:
+        "results/mapped/q{q}/hiv.bam"
+    output:
+        "results/mapped/q{q}/hiv.fix.bam"
+    conda:
+        "envs/map.yaml"
+    shell:
+        "samtools sort -n {input} | samtools fixmate -m - {output}"
+
+rule sort:
+    input:
+        "results/mapped/q{q}/hiv.fix.bam"
+    output:
+        "results/mapped/q{q}/hiv.sorted.bam"
+    conda:
+        "envs/map.yaml"
+    shell:
+        "samtools sort -o {output} {input}"
+
+rule dedup:
+    input:
+        "results/mapped/q{q}/hiv.sorted.bam"
+    output:
+        "results/mapped/q{q}/hiv.sorted.dedup.bam"
+    conda:
+        "envs/map.yaml"
+    shell:
+        "samtools markdup -r -S {input} {output}"
+
+rule depth:
+    input:
+        "results/mapped/q{q}/hiv.sorted.dedup.bam"
+    output:
+        "results/mapped/q{q}/depth.tsv"
+    conda:
+        "envs/map.yaml"
+    shell:
+        "samtools depth {input} > {output}"
+
+rule cov_plot:
+     input:
+        tsv="results/mapped/q{q}/depth.tsv"
+     output:
+        tsv="results/mapped/q{q}/coverage.tsv",
+        pdf="results/mapped/q{q}/coverage.pdf"
+     script:
+        "scripts/coverage_plot.R"
+
+rule qualimap:
+     input:
+        "results/mapped/q{q}/hiv.sorted.dedup.bam"
+     output:
+        directory("results/mapped/q{q}/qualimap")
+     shell:
+        "unset DISPLAY | qualimap bamqc -bam {input} -outdir {output} -outfile correlation.pdf -outformat PDF"
